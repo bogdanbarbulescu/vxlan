@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding VXLAN Encapsulation</title>
+    <!-- Using Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        :root {
+            --server-color: #e0f7fa;
+            --vm-color: #ffffff;
+            --network-color: #b3e5fc;
+            --packet-color: #fffde7;
+            --outer-packet-color: #f0f4c3;
+            --border-color: #0277bd;
+            --text-color: #333;
+            --animation-speed: 2s; /* Base speed for each segment */
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            color: #01579b;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .container {
+            position: relative; /* Needed for absolute positioning of the packet */
+            width: 100%;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden; /* Prevent packet going outside bounds visually */
+        }
+
+        .network-diagram {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            position: relative; /* Relative positioning context for children */
+            min-height: 250px; /* Ensure space for elements */
+            padding: 20px 0; /* Padding top/bottom */
+        }
+
+        .server {
+            border: 2px solid var(--border-color);
+            background-color: var(--server-color);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            width: 35%; /* Adjust width as needed */
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative; /* For VTEP positioning */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .server-label {
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: var(--border-color);
+            font-size: 1.1em;
+        }
+
+        .vms {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+        }
+
+        .vm {
+            background-color: var(--vm-color);
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px 5px;
+            margin: 5px;
+            font-size: 0.9em;
+            width: 40%; /* Adjust VM width */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .vm i {
+            font-size: 1.5em;
+            margin-top: 5px;
+            color: #555;
+        }
+
+        .ip-network {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #0288d1;
+            font-weight: bold;
+            text-align: center;
+            flex-shrink: 0; /* Prevent shrinking */
+            margin: 0 15px; /* Space between servers and cloud */
+        }
+
+        .ip-network i {
+            font-size: 4em; /* Larger cloud icon */
+            color: var(--network-color);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+        }
+
+        .packet {
+            position: absolute;
+            background-color: var(--packet-color);
+            border: 1px solid #c0ca33;
+            border-radius: 4px;
+            padding: 5px;
+            font-size: 0.7em;
+            text-align: center;
+            opacity: 0;
+            transition: top var(--animation-speed) ease-in-out,
+                        left var(--animation-speed) ease-in-out,
+                        opacity 0.5s ease-in-out;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            white-space: nowrap; /* Prevent labels wrapping */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .packet-label {
+            font-weight: bold;
+            margin-bottom: 3px;
+            font-size: 0.8em;
+            color: #555;
+        }
+
+        .inner-packet, .outer-wrapper {
+             padding: 5px;
+             margin: 2px 0;
+             border-radius: 3px;
+        }
+
+        .inner-packet {
+            background-color: #fff;
+            border: 1px dashed #aaa;
+        }
+         .inner-packet div {
+             margin: 1px 0;
+         }
+
+
+        .outer-wrapper {
+            background-color: var(--outer-packet-color);
+            border: 1px solid #9e9d24;
+            padding: 8px 5px; /* More padding for outer */
+            transition: opacity 0.5s ease-in-out; /* Fade in/out effect */
+        }
+        .outer-wrapper div {
+             margin: 1px 0;
+         }
+
+
+        .send-button {
+            display: block;
+            margin: 30px auto 20px auto;
+            padding: 12px 25px;
+            font-size: 1.1em;
+            color: #fff;
+            background-color: #0288d1;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .send-button:hover {
+            background-color: #0277bd;
+        }
+        .send-button:disabled {
+            background-color: #90a4ae;
+            cursor: not-allowed;
+        }
+
+        .explanation {
+            text-align: center;
+            margin-top: 20px;
+            font-style: italic;
+            color: #555;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .network-diagram {
+                flex-direction: column;
+                align-items: center;
+                min-height: 450px; /* Increased height for column layout */
+            }
+
+            .server {
+                width: 80%;
+                margin-bottom: 20px;
+            }
+
+            .ip-network {
+                margin: 20px 0; /* Vertical margin */
+                order: 1; /* Place cloud between servers */
+            }
+            #server-a { order: 0; }
+            #server-b { order: 2; }
+
+            .vms {
+                flex-direction: row; /* Keep VMs side-by-side */
+            }
+             .vm {
+                 width: 45%;
+             }
+
+            .packet {
+                 font-size: 0.6em; /* Smaller text on mobile */
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 { font-size: 1.5em; }
+            .server { width: 95%; }
+            .vm { font-size: 0.8em; }
+            .vm i { font-size: 1.2em; }
+            .ip-network i { font-size: 3em; }
+            .send-button { font-size: 1em; padding: 10px 20px;}
+            .packet { font-size: 0.55em; }
+            .packet-label { font-size: 0.7em; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Understanding VXLAN Encapsulation</h1>
+
+    <div class="container">
+        <div class="network-diagram" id="network-diagram">
+            <div class="server" id="server-a">
+                <div class="server-label">Server A (VTEP 1)</div>
+                <div class="vms">
+                    <div class="vm" id="vm1">VM1 <i class="fas fa-desktop"></i></div>
+                    <div class="vm" id="vm2">VM2 <i class="fas fa-desktop"></i></div>
+                </div>
+            </div>
+
+            <div class="ip-network" id="ip-network">
+                <i class="fas fa-cloud"></i>
+                IP Network
+            </div>
+
+            <div class="server" id="server-b">
+                <div class="server-label">Server B (VTEP 2)</div>
+                <div class="vms">
+                    <div class="vm" id="vm3">VM3 <i class="fas fa-desktop"></i></div>
+                    <div class="vm" id="vm4">VM4 <i class="fas fa-desktop"></i></div>
+                </div>
+            </div>
+
+            <!-- The Packet Element -->
+            <div class="packet" id="packet">
+                <!-- Content will be dynamically added here -->
+            </div>
+        </div>
+
+        <button id="send-button" class="send-button">Send Packet from VM1 to VM4</button>
+
+        <p class="explanation">
+            VXLAN encapsulates Layer 2 Ethernet frames within UDP packets to transmit data across an IP network, enabling scalable virtual networks. Click the button to see the process.
+        </p>
+    </div>
+
+    <script>
+        const sendButton = document.getElementById('send-button');
+        const packet = document.getElementById('packet');
+        const vm1 = document.getElementById('vm1');
+        const vm4 = document.getElementById('vm4');
+        const serverA = document.getElementById('server-a');
+        const serverB = document.getElementById('server-b');
+        const ipNetwork = document.getElementById('ip-network');
+        const networkDiagram = document.getElementById('network-diagram');
+
+        let isAnimating = false;
+
+        // --- Packet Content Templates ---
+        const innerPacketHtml = `
+            <div class="packet-label">Original Ethernet Frame</div>
+            <div class="inner-packet">
+                <div>MAC Header</div>
+                <div>IP Header</div>
+                <div>Payload</div>
+            </div>
+        `;
+
+        const fullPacketHtml = `
+            <div class="outer-wrapper">
+                 <div class="packet-label">Outer Headers</div>
+                 <div>Outer MAC Hdr</div>
+                 <div>Outer IP Hdr</div>
+                 <div>UDP Header</div>
+                 <div>VXLAN Header</div>
+                 ${innerPacketHtml}
+            </div>
+        `;
+
+        // --- Animation Logic ---
+        sendButton.addEventListener('click', () => {
+            if (isAnimating) return; // Prevent multiple animations
+            isAnimating = true;
+            sendButton.disabled = true;
+            sendButton.textContent = 'Animating...';
+
+            // Reset packet state
+            packet.style.opacity = '0';
+            packet.style.transition = 'none'; // Disable transitions during reset
+            packet.innerHTML = ''; // Clear previous content
+
+            // Calculate positions dynamically
+            const diagramRect = networkDiagram.getBoundingClientRect();
+            const vm1Rect = vm1.getBoundingClientRect();
+            const serverARect = serverA.getBoundingClientRect();
+            const serverBRect = serverB.getBoundingClientRect();
+            const vm4Rect = vm4.getBoundingClientRect();
+            const networkRect = ipNetwork.getBoundingClientRect();
+
+            // Adjust for container padding/margins if necessary
+            const containerTop = diagramRect.top + window.scrollY;
+            const containerLeft = diagramRect.left + window.scrollX;
+
+            // --- Animation Steps ---
+
+            // 1. Originate from VM1
+            const startX = vm1Rect.left - containerLeft + vm1Rect.width / 2 - packet.offsetWidth / 2;
+            const startY = vm1Rect.top - containerTop + vm1Rect.height; // Below VM1
+            packet.style.left = `${startX}px`;
+            packet.style.top = `${startY}px`;
+            packet.innerHTML = innerPacketHtml; // Show inner packet first
+
+            // Need a slight delay to allow rendering before starting transition
+            setTimeout(() => {
+                packet.style.transition = `top ${getAnimationSpeed(0.8)}s ease-in-out, left ${getAnimationSpeed(0.8)}s ease-in-out, opacity 0.5s ease-in-out`;
+                packet.style.opacity = '1';
+
+                // 2. Move towards Server A's "edge" (bottom center) for encapsulation
+                const vtepAX = serverARect.left - containerLeft + serverARect.width / 2 - packet.offsetWidth / 2;
+                const vtepAY = serverARect.top - containerTop + serverARect.height - packet.offsetHeight / 2 ; // Near bottom edge
+                packet.style.left = `${vtepAX}px`;
+                packet.style.top = `${vtepAY}px`;
+
+                // 3. Encapsulate after reaching Server A
+                setTimeout(() => {
+                    packet.innerHTML = fullPacketHtml; // Add outer headers
+
+                    // 4. Move across the IP Network
+                    const networkCenterX = networkRect.left - containerLeft + networkRect.width / 2 - packet.offsetWidth / 2;
+                    const networkCenterY = networkRect.top - containerTop + networkRect.height / 2 - packet.offsetHeight / 2;
+                    // Adjust speed for crossing the network
+                    packet.style.transition = `top ${getAnimationSpeed(1.5)}s ease-in-out, left ${getAnimationSpeed(1.5)}s ease-in-out, opacity 0.5s ease-in-out`;
+                    packet.style.left = `${networkCenterX}px`;
+                    packet.style.top = `${networkCenterY}px`;
+
+
+                    // 5. Move towards Server B's "edge"
+                    setTimeout(() => {
+                        const vtepBX = serverBRect.left - containerLeft + serverBRect.width / 2 - packet.offsetWidth / 2;
+                        const vtepBY = serverBRect.top - containerTop + serverBRect.height - packet.offsetHeight / 2 ; // Near bottom edge
+                        // Adjust speed for final leg
+                        packet.style.transition = `top ${getAnimationSpeed(0.8)}s ease-in-out, left ${getAnimationSpeed(0.8)}s ease-in-out, opacity 0.5s ease-in-out`;
+                        packet.style.left = `${vtepBX}px`;
+                        packet.style.top = `${vtepBY}px`;
+
+                        // 6. Decapsulate after reaching Server B
+                        setTimeout(() => {
+                           packet.innerHTML = innerPacketHtml; // Remove outer headers
+
+                            // 7. Move to VM4
+                            const endX = vm4Rect.left - containerLeft + vm4Rect.width / 2 - packet.offsetWidth / 2;
+                            const endY = vm4Rect.top - containerTop + vm4Rect.height; // Below VM4
+                            packet.style.left = `${endX}px`;
+                            packet.style.top = `${endY}px`;
+
+                            // 8. Finish Animation
+                            setTimeout(() => {
+                                // Optional: fade out packet slightly or keep it there
+                                // packet.style.opacity = '0.8';
+                                isAnimating = false;
+                                sendButton.disabled = false;
+                                sendButton.textContent = 'Send Packet from VM1 to VM4';
+                            }, getAnimationSpeed(0.8) * 1000); // Wait for move to VM4
+
+                        }, 500); // Short delay for visual decapsulation effect
+
+                    }, getAnimationSpeed(1.5) * 1000); // Wait for crossing network
+
+                }, getAnimationSpeed(0.8) * 1000 + 100); // Wait for move to VTEP A + slight delay for encapsulation
+
+            }, 50); // Initial short delay
+        });
+
+        // Helper to get animation speed (adjusts the base speed)
+        function getAnimationSpeed(multiplier = 1) {
+            const baseSpeed = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--animation-speed')) || 2;
+            return baseSpeed * multiplier;
+        }
+
+        // Recalculate positions on resize to ensure animation works correctly
+        // Note: This is a simple example; complex resize handling might be needed
+        window.addEventListener('resize', () => {
+            if (isAnimating) {
+                // Potentially stop animation or just let it finish with old coords
+                console.warn("Resized during animation, positions might be inaccurate.");
+            }
+        });
+
+    </script>
+
+</body>
+</html>
